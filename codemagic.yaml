@@ -13,7 +13,7 @@ workflows:
       - name: Set up code signing settings on Xcode project
         script: |
           xcode-project use-profiles \
-            --project "/Users/builder/clone/Tracked Images.xcodeproj"
+            --project "/Users/builder/clone/Tracked\ Images.xcodeproj"
 
       - name: Set up provisioning profiles settings on Xcode project
         script: xcode-project use-profiles
@@ -30,10 +30,10 @@ workflows:
         script: |
           cd /Users/builder/clone
           xcodebuild -list \
-            -project Tracked Images.xcodeproj
+            -project Tracked\ Images.xcodeproj
           xcodebuild \
-            -project Tracked Images.xcodeproj \
-            -scheme Tracked Images \
+            -project Tracked\ Images.xcodeproj \
+            -scheme Tracked\ Images \
             -sdk iphoneos \
             -showBuildSettings
 
