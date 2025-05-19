@@ -1,0 +1,80 @@
+workflows:
+  ios-workflow:
+    name: Custom Workflow
+    integrations:
+      app_store_connect: codemagic
+    environment:
+      groups:
+        - admin
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.hamid.arkit.new
+    scripts:
+      - name: Set up code signing settings on Xcode project
+        script: |
+          xcode-project use-profiles \
+            --project "/Users/builder/clone/Tracked Images.xcodeproj"
+
+      - name: Set up provisioning profiles settings on Xcode project
+        script: xcode-project use-profiles
+        
+      - name: Increment build number
+        script: | 
+          cd /Users/builder/clone  # Navigate to project directory
+          LATEST_BUILD_NUMBER=$(app-store-connect get-latest-app-store-build-number "6738909278")
+          agvtool new-version -all $(($LATEST_BUILD_NUMBER + 7))
+          CURRENT_BUILD_NUMBER=$(agvtool what-version -terse)
+          echo "Updated build number: $CURRENT_BUILD_NUMBER"
+
+      - name: Verify schemes & dump Build Settings
+        script: |
+          cd /Users/builder/clone
+          xcodebuild -list \
+            -project Tracked Images.xcodeproj
+          xcodebuild \
+            -project Tracked Images.xcodeproj \
+            -scheme Tracked Images \
+            -sdk iphoneos \
+            -showBuildSettings
+
+      - name: Build App (.ipa)
+        script: |
+          cd /Users/builder/clone
+          xcodebuild clean archive \
+            -project arkitevideo.xcodeproj \
+            -scheme arkitevideo \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath $CM_BUILD_DIR/arkitevideo.xcarchive
+          xcodebuild -exportArchive \
+            -archivePath $CM_BUILD_DIR/arkitevideo.xcarchive \
+            -exportPath $CM_BUILD_DIR/exported \
+            -exportOptionsPlist /Users/builder/export_options.plist
+
+      - name: Log Output directories
+        script: |
+          echo "Build directory: $CM_BUILD_DIR"
+          ls "$CM_BUILD_DIR"
+          echo "Searching for .ipa..."
+          find "$CM_BUILD_DIR" -type f -name "*.ipa"
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - $CM_BUILD_DIR/**/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+
+    publishing:
+      email:
+        recipients:
+          - hamidrdeveloper@gmail.com
+        notify:
+          success: true
+          failure: false
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        beta_groups:
+          - group name 1
+          - group name 2
+        submit_to_app_store: false
