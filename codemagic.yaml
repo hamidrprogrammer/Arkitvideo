@@ -41,13 +41,13 @@ workflows:
         script: |
           cd /Users/builder/clone
           xcodebuild clean archive \
-            -project arkitevideo.xcodeproj \
-            -scheme arkitevideo \
+            -project Tracked\ Images.xcodeproj \
+            -scheme Tracked\ Images \
             -configuration Release \
             -sdk iphoneos \
-            -archivePath $CM_BUILD_DIR/arkitevideo.xcarchive
+            -archivePath $CM_BUILD_DIR/Tracked\ Images.xcarchive
           xcodebuild -exportArchive \
-            -archivePath $CM_BUILD_DIR/arkitevideo.xcarchive \
+            -archivePath $CM_BUILD_DIR/Tracked\ Images.xcarchive \
             -exportPath $CM_BUILD_DIR/exported \
             -exportOptionsPlist /Users/builder/export_options.plist
 
