@@ -3,7 +3,7 @@
 //  Tracked Images
 //
 //  Created by Tony Morales on 6/13/18.
-//  Modified by Ashen – 19 May 2025
+//  Copyright © 2018 Tony Morales. All rights reserved.
 //
 
 import UIKit
@@ -11,149 +11,88 @@ import SceneKit
 import ARKit
 import AVFoundation
 
-// MARK: - کوچک‌ترین نسخه‌ی StatusViewController برای پیام‌های وضعیت
-final class StatusViewController: UIViewController {
-    
-    private let label = UILabel()
-    private var timer: Timer?
-    
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .clear
-        label.textColor = .white
-        label.font = .systemFont(ofSize: 15, weight: .medium)
-        label.textAlignment = .center
-        label.numberOfLines = 0
-        label.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(label)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            label.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            label.topAnchor.constraint(equalTo: view.topAnchor),
-            label.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
-    }
-    
-    /// نشان دادن یک پیام که پس از ۳ ثانیه پاک می‌شود
-    func showMessage(_ text: String) {
-        DispatchQueue.main.async {
-            self.label.text = text
-            self.timer?.invalidate()
-            self.timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { _ in
-                self.label.text = ""
-            }
-        }
-    }
-    
-    /// لغو تمام پیام‌های زمان‌بندی‌شده
-    func cancelAllScheduledMessages() {
-        timer?.invalidate()
-        timer = nil
-        label.text = ""
-    }
-}
+class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, UICollectionViewDataSource, UICollectionViewDelegate {
 
-class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
+    @IBOutlet var sceneView: ARSCNView!
+    @IBOutlet weak var magicSwitch: UISwitch!
+    @IBOutlet weak var blurView: UIVisualEffectView!
     
-    // MARK: - UI
-    
-    private var sceneView: ARSCNView!
-    private var magicSwitch: UISwitch!
-    private var blurView: UIVisualEffectView!
-    private let statusViewController = StatusViewController()
-    
-    // MARK: - ویدیو پلیرها
-    
-    private let isaVideoPlayer: AVPlayer = {
-        guard let url = Bundle.main.url(forResource: "isa video",
-                                        withExtension: "mp4",
-                                        subdirectory: "art.scnassets") else { return AVPlayer() }
+    // Video Players
+    let isaVideoPlayer: AVPlayer = {
+        guard let url = Bundle.main.url(forResource: "isa video", withExtension: "mp4", subdirectory: "art.scnassets") else {
+            print("Could not find video file")
+            return AVPlayer()
+        }
         return AVPlayer(url: url)
     }()
     
-    private let pragueVideoPlayer: AVPlayer = {
-        guard let url = Bundle.main.url(forResource: "prague video",
-                                        withExtension: "mp4",
-                                        subdirectory: "art.scnassets") else { return AVPlayer() }
+    let pragueVideoPlayer: AVPlayer = {
+        guard let url = Bundle.main.url(forResource: "prague video", withExtension: "mp4", subdirectory: "art.scnassets") else {
+            print("Could not find video file")
+            return AVPlayer()
+        }
         return AVPlayer(url: url)
     }()
     
-    private let fightClubVideoPlayer: AVPlayer = {
-        guard let url = Bundle.main.url(forResource: "fight club video",
-                                        withExtension: "mov",
-                                        subdirectory: "art.scnassets") else { return AVPlayer() }
+    let fightClubVideoPlayer: AVPlayer = {
+        guard let url = Bundle.main.url(forResource: "fight club video", withExtension: "mov", subdirectory: "art.scnassets") else {
+            print("Could not find video file")
+            return AVPlayer()
+        }
         return AVPlayer(url: url)
     }()
     
-    private let homerVideoPlayer: AVPlayer = {
-        guard let url = Bundle.main.url(forResource: "homer video",
-                                        withExtension: "mov",
-                                        subdirectory: "art.scnassets") else { return AVPlayer() }
+    let homerVideoPlayer: AVPlayer = {
+        guard let url = Bundle.main.url(forResource: "homer video", withExtension: "mov", subdirectory: "art.scnassets") else {
+            print("Could not find video file")
+            return AVPlayer()
+        }
         return AVPlayer(url: url)
     }()
     
-    // MARK: - Session helpers
+    // UI Components
+    private let imagesButton = UIButton(type: .system)
+    private let popupView = UIView()
+    private let collectionView: UICollectionView = {
+        let layout = UICollectionViewFlowLayout()
+        layout.itemSize = CGSize(width: 120, height: 40)
+        layout.minimumInteritemSpacing = 10
+        let cv = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        return cv
+    }()
     
-    private let updateQueue = DispatchQueue(label: Bundle.main.bundleIdentifier! + ".serialSceneKitQueue")
-    private var session: ARSession { sceneView.session }
-    private var isRestartAvailable = true
+    private let imageList = [
+        "isa video",
+        "prague video", 
+        "fight club video",
+        "homer video"
+    ]
     
-    // MARK: - Life‑cycle
+    // Status View Controller
+    lazy var statusViewController: StatusViewController = {
+        return children.lazy.compactMap({ $0 as? StatusViewController }).first!
+    }()
     
+    let updateQueue = DispatchQueue(label: Bundle.main.bundleIdentifier! + ".serialSceneKitQueue")
+    
+    var session: ARSession {
+        return sceneView.session
+    }
+    
+    // MARK: - Lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
         
-        // ARSCNView
-        sceneView = ARSCNView(frame: view.bounds)
-        sceneView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         sceneView.delegate = self
         sceneView.session.delegate = self
-        view.addSubview(sceneView)
+        magicSwitch.setOn(false, animated: false)
         
-        // Blur overlay (برای هماهنگی با کد extension قدیمی)
-        blurView = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
-        blurView.frame = view.bounds
-        blurView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        blurView.alpha = 0
-        view.addSubview(blurView)
+        setupUI()
+        setupPopup()
         
-        // Magic switch
-        magicSwitch = UISwitch()
-        magicSwitch.translatesAutoresizingMaskIntoConstraints = false
-        magicSwitch.addTarget(self, action: #selector(switchOnMagic(_:)), for: .valueChanged)
-        view.addSubview(magicSwitch)
-        
-        // Show‑images button
-        let listButton = UIButton(type: .system)
-        listButton.translatesAutoresizingMaskIntoConstraints = false
-        listButton.setImage(UIImage(systemName: "photo.on.rectangle.angled"), for: .normal)
-        listButton.tintColor = .white
-        listButton.backgroundColor = UIColor.black.withAlphaComponent(0.5)
-        listButton.layer.cornerRadius = 22
-        listButton.addTarget(self, action: #selector(showImageList), for: .touchUpInside)
-        view.addSubview(listButton)
-        
-        // Status vc (پایین صفحه)
-        addChild(statusViewController)
-        statusViewController.view.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(statusViewController.view)
-        statusViewController.didMove(toParent: self)
-        
-        // Constraints
-        NSLayoutConstraint.activate([
-            magicSwitch.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
-            magicSwitch.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
-            
-            listButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            listButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
-            listButton.widthAnchor.constraint(equalToConstant: 44),
-            listButton.heightAnchor.constraint(equalToConstant: 44),
-            
-            statusViewController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            statusViewController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            statusViewController.view.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
-            statusViewController.view.heightAnchor.constraint(equalToConstant: 50)
-        ])
+        statusViewController.restartExperienceHandler = { [unowned self] in
+            self.restartExperience()
+        }
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -167,72 +106,146 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
         session.pause()
     }
     
-    // MARK: - AR configuration
+    // MARK: - UI Setup
+    private func setupUI() {
+        // Images Button
+        imagesButton.setTitle("Images", for: .normal)
+        imagesButton.backgroundColor = .white.withAlphaComponent(0.9)
+        imagesButton.layer.cornerRadius = 8
+        imagesButton.addTarget(self, action: #selector(togglePopup), for: .touchUpInside)
+        
+        view.addSubview(imagesButton)
+        imagesButton.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            imagesButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+            imagesButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            imagesButton.widthAnchor.constraint(equalToConstant: 80),
+            imagesButton.heightAnchor.constraint(equalToConstant: 40)
+        ])
+    }
     
-    @objc private func switchOnMagic(_ sender: Any) {
+    private func setupPopup() {
+        // Popup View
+        popupView.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        popupView.layer.cornerRadius = 12
+        popupView.isHidden = true
+        
+        // Collection View
+        collectionView.backgroundColor = .white
+        collectionView.layer.cornerRadius = 8
+        collectionView.register(UICollectionViewCell.self, forCellWithReuseIdentifier: "cell")
+        collectionView.dataSource = self
+        collectionView.delegate = self
+        
+        // Tap Gesture for Dismiss
+        let tap = UITapGestureRecognizer(target: self, action: #selector(dismissPopup))
+        tap.delegate = self
+        popupView.addGestureRecognizer(tap)
+        
+        view.addSubview(popupView)
+        popupView.addSubview(collectionView)
+        
+        popupView.translatesAutoresizingMaskIntoConstraints = false
+        collectionView.translatesAutoresizingMaskIntoConstraints = false
+        
+        NSLayoutConstraint.activate([
+            popupView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            popupView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            popupView.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.8),
+            popupView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.6),
+            
+            collectionView.topAnchor.constraint(equalTo: popupView.topAnchor, constant: 20),
+            collectionView.leadingAnchor.constraint(equalTo: popupView.leadingAnchor, constant: 20),
+            collectionView.trailingAnchor.constraint(equalTo: popupView.trailingAnchor, constant: -20),
+            collectionView.bottomAnchor.constraint(equalTo: popupView.bottomAnchor, constant: -20)
+        ])
+    }
+    
+    // MARK: - Button Actions
+    @IBAction func switchOnMagic(_ sender: Any) {
         let configuration = ARImageTrackingConfiguration()
+        
         guard let trackingImages = ARReferenceImage.referenceImages(inGroupNamed: "AR Resources", bundle: nil) else {
             print("Could not load images")
             return
         }
+        
         configuration.trackingImages = trackingImages
         configuration.maximumNumberOfTrackedImages = 4
         session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
     }
     
-    private func resetTracking() {
+    @objc private func togglePopup() {
+        popupView.isHidden = !popupView.isHidden
+    }
+    
+    @objc private func dismissPopup() {
+        popupView.isHidden = true
+    }
+    
+    // MARK: - CollectionView DataSource
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        return imageList.count
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "cell", for: indexPath)
+        cell.backgroundColor = .lightGray
+        
+        let label = UILabel(frame: cell.contentView.bounds)
+        label.text = imageList[indexPath.row]
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        cell.contentView.addSubview(label)
+        
+        return cell
+    }
+    
+    // MARK: - ARSession Management
+    func resetTracking() {
         let configuration = ARImageTrackingConfiguration()
         session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
     }
     
-    /// برای extension قدیمی
-    func restartExperience() { resetTracking() }
-    
-    // MARK: - Pop‑up list
-    
-    @objc private func showImageList() {
-        let alert = UIAlertController(title: "Available Videos", message: nil, preferredStyle: .actionSheet)
-        ["isa video", "prague video", "fight club video", "homer video"].forEach { name in
-            alert.addAction(UIAlertAction(title: name, style: .default))
-        }
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        if let pop = alert.popoverPresentationController {
-            pop.sourceView = view
-            pop.sourceRect = CGRect(x: view.bounds.width - 60, y: 60, width: 1, height: 1)
-        }
-        present(alert, animated: true)
-    }
-    
     // MARK: - ARSCNViewDelegate
-    
     func renderer(_ renderer: SCNSceneRenderer, nodeFor anchor: ARAnchor) -> SCNNode? {
         let node = SCNNode()
-        guard let imageAnchor = anchor as? ARImageAnchor else { return node }
         
-        let plane = SCNPlane(width: imageAnchor.referenceImage.physicalSize.width,
-                             height: imageAnchor.referenceImage.physicalSize.height)
-        
-        switch imageAnchor.referenceImage.name {
-        case "prague image":
-            plane.firstMaterial?.diffuse.contents = pragueVideoPlayer
-            pragueVideoPlayer.play()
-            pragueVideoPlayer.volume = 0.4
-        case "fight club image":
-            plane.firstMaterial?.diffuse.contents = fightClubVideoPlayer
-            fightClubVideoPlayer.play()
-        case "homer image":
-            plane.firstMaterial?.diffuse.contents = homerVideoPlayer
-            homerVideoPlayer.play()
-        default:
-            plane.firstMaterial?.diffuse.contents = isaVideoPlayer
-            isaVideoPlayer.play()
-            isaVideoPlayer.isMuted = true
+        if let imageAnchor = anchor as? ARImageAnchor {
+            let plane = SCNPlane(
+                width: imageAnchor.referenceImage.physicalSize.width,
+                height: imageAnchor.referenceImage.physicalSize.height
+            )
+            
+            switch imageAnchor.referenceImage.name {
+            case "prague image":
+                plane.firstMaterial?.diffuse.contents = pragueVideoPlayer
+                pragueVideoPlayer.play()
+                pragueVideoPlayer.volume = 0.4
+            case "fight club image":
+                plane.firstMaterial?.diffuse.contents = fightClubVideoPlayer
+                fightClubVideoPlayer.play()
+            case "homer image":
+                plane.firstMaterial?.diffuse.contents = homerVideoPlayer
+                homerVideoPlayer.play()
+            default:
+                plane.firstMaterial?.diffuse.contents = isaVideoPlayer
+                isaVideoPlayer.play()
+                isaVideoPlayer.isMuted = true
+            }
+            
+            let planeNode = SCNNode(geometry: plane)
+            planeNode.eulerAngles.x = -.pi / 2
+            node.addChildNode(planeNode)
         }
         
-        let planeNode = SCNNode(geometry: plane)
-        planeNode.eulerAngles.x = -.pi / 2
-        node.addChildNode(planeNode)
         return node
     }
 }
 
+// MARK: - UIGestureRecognizerDelegate
+extension ViewController: UIGestureRecognizerDelegate {
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        return touch.view == popupView
+    }
+}
