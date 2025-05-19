@@ -3,167 +3,162 @@
 //  Tracked Images
 //
 //  Created by Tony Morales on 6/13/18.
-//  Copyright © 2018 Tony Morales. All rights reserved.
+//  Updated by Ashen on 5/19/2025.
 //
 
 import UIKit
 import SceneKit
 import ARKit
+import AVFoundation
 
 class ViewController: UIViewController, ARSCNViewDelegate {
 
-    @IBOutlet var sceneView: ARSCNView!
-    @IBOutlet weak var magicSwitch: UISwitch!
-    @IBOutlet weak var blurView: UIVisualEffectView!
+    var sceneView: ARSCNView!
+    var magicSwitch: UISwitch!
+    var blurView: UIVisualEffectView!
     
-    // Create video player
     let isaVideoPlayer: AVPlayer = {
-        //load Isa video from bundle
         guard let url = Bundle.main.url(forResource: "isa video", withExtension: "mp4", subdirectory: "art.scnassets") else {
-            print("Could not find video file")
+            print("Could not find isa video file")
             return AVPlayer()
         }
-        
         return AVPlayer(url: url)
     }()
+    
     let pragueVideoPlayer: AVPlayer = {
-        //load Prague video from bundle
         guard let url = Bundle.main.url(forResource: "prague video", withExtension: "mp4", subdirectory: "art.scnassets") else {
-            print("Could not find video file")
+            print("Could not find prague video file")
             return AVPlayer()
         }
-        
         return AVPlayer(url: url)
     }()
+    
     let fightClubVideoPlayer: AVPlayer = {
-        //load Prague video from bundle
         guard let url = Bundle.main.url(forResource: "fight club video", withExtension: "mov", subdirectory: "art.scnassets") else {
-            print("Could not find video file")
+            print("Could not find fight club video file")
             return AVPlayer()
         }
-        
         return AVPlayer(url: url)
     }()
+    
     let homerVideoPlayer: AVPlayer = {
-        //load Prague video from bundle
         guard let url = Bundle.main.url(forResource: "homer video", withExtension: "mov", subdirectory: "art.scnassets") else {
-            print("Could not find video file")
+            print("Could not find homer video file")
             return AVPlayer()
         }
-        
         return AVPlayer(url: url)
     }()
     
+    let updateQueue = DispatchQueue(label: Bundle.main.bundleIdentifier! + ".serialSceneKitQueue")
     
-    /// The view controller that displays the status and "restart experience" UI.
-    lazy var statusViewController: StatusViewController = {
-        return children.lazy.compactMap({ $0 as? StatusViewController }).first!
-    }()
-    
-    /// A serial queue for thread safety when modifying the SceneKit node graph.
-    let updateQueue = DispatchQueue(label: Bundle.main.bundleIdentifier! +
-        ".serialSceneKitQueue")
-    
-    /// Convenience accessor for the session owned by ARSCNView.
     var session: ARSession {
         return sceneView.session
     }
-    
-    // MARK: - View Controller Life Cycle
+
+    var isRestartAvailable = true
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        
+
+        // Setup ARSCNView programmatically
+        sceneView = ARSCNView(frame: view.bounds)
         sceneView.delegate = self
         sceneView.session.delegate = self
-        magicSwitch.setOn(false, animated: false)
+        view.addSubview(sceneView)
         
-        // Hook up status view controller callback(s).
-        statusViewController.restartExperienceHandler = { [unowned self] in
-            self.restartExperience()
-        }
+        // Add Magic Switch
+        magicSwitch = UISwitch(frame: CGRect(x: 20, y: 40, width: 50, height: 30))
+        magicSwitch.addTarget(self, action: #selector(switchOnMagic(_:)), for: .valueChanged)
+        view.addSubview(magicSwitch)
+        
+        // Add Button to show image list
+        let showListButton = UIButton(type: .system)
+        showListButton.frame = CGRect(x: view.bounds.width - 120, y: 40, width: 100, height: 30)
+        showListButton.setTitle("Show Images", for: .normal)
+        showListButton.addTarget(self, action: #selector(showImageList), for: .touchUpInside)
+        view.addSubview(showListButton)
     }
-    
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        
-        // Prevent the screen from being dimmed to avoid interuppting the AR experience.
         UIApplication.shared.isIdleTimerDisabled = true
-        
-        // Start the AR experience
         resetTracking()
     }
-    
+
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        
         session.pause()
     }
-    
-    // MARK: - Session management (Image detection setup)
-    
-    /// Prevents restarting the session while a restart is in progress.
-    var isRestartAvailable = true
-    
-    @IBAction func switchOnMagic(_ sender: Any) {
+
+    @objc func switchOnMagic(_ sender: Any) {
         let configuration = ARImageTrackingConfiguration()
-        
         guard let trackingImages = ARReferenceImage.referenceImages(inGroupNamed: "AR Resources", bundle: nil) else {
             print("Could not load images")
             return
         }
-        
-        // Setup Configuration
         configuration.trackingImages = trackingImages
         configuration.maximumNumberOfTrackedImages = 4
         session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
     }
-    
-    
-    /// Creates a new AR configuration to run on the `session`.
-    /// - Tag: ARReferenceImage-Loading
+
     func resetTracking() {
-        
         let configuration = ARImageTrackingConfiguration()
         session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
     }
-    
-    // MARK: - Image Tracking Results
-    
+
     public func renderer(_ renderer: SCNSceneRenderer, nodeFor anchor: ARAnchor) -> SCNNode? {
         let node = SCNNode()
-        
-        // Show video overlaid on image
+
         if let imageAnchor = anchor as? ARImageAnchor {
+            let plane = SCNPlane(width: imageAnchor.referenceImage.physicalSize.width,
+                                 height: imageAnchor.referenceImage.physicalSize.height)
             
-            // Create a plane
-            let plane = SCNPlane(width: imageAnchor.referenceImage.physicalSize.width, height: imageAnchor.referenceImage.physicalSize.height)
-            if imageAnchor.referenceImage.name == "prague image" {
-                // Set AVPlayer as the plane's texture and play
+            switch imageAnchor.referenceImage.name {
+            case "prague image":
                 plane.firstMaterial?.diffuse.contents = self.pragueVideoPlayer
                 self.pragueVideoPlayer.play()
                 self.pragueVideoPlayer.volume = 0.4
-            } else if imageAnchor.referenceImage.name == "fight club image" {
+            case "fight club image":
                 plane.firstMaterial?.diffuse.contents = self.fightClubVideoPlayer
                 self.fightClubVideoPlayer.play()
-            } else if imageAnchor.referenceImage.name == "homer image" {
+            case "homer image":
                 plane.firstMaterial?.diffuse.contents = self.homerVideoPlayer
                 self.homerVideoPlayer.play()
-            } else {
+            default:
                 plane.firstMaterial?.diffuse.contents = self.isaVideoPlayer
                 self.isaVideoPlayer.play()
                 self.isaVideoPlayer.isMuted = true
             }
             
             let planeNode = SCNNode(geometry: plane)
-            
-            // Rotate the plane to match the anchor
             planeNode.eulerAngles.x = -.pi / 2
-            
-            // Add plane node to parent
             node.addChildNode(planeNode)
         }
-        
+
         return node
+    }
+
+    // MARK: - Show Pop-up List
+    @objc func showImageList() {
+        let alert = UIAlertController(title: "Available Videos", message: nil, preferredStyle: .actionSheet)
+        let videos = [
+            "isa video",
+            "prague video",
+            "fight club video",
+            "homer video"
+        ]
+        
+        for video in videos {
+            alert.addAction(UIAlertAction(title: video, style: .default, handler: nil))
+        }
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+        
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = self.view
+            popover.sourceRect = CGRect(x: self.view.bounds.width - 60, y: 40, width: 1, height: 1)
+        }
+        
+        present(alert, animated: true, completion: nil)
     }
 }
