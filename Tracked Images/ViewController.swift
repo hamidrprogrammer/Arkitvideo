@@ -125,7 +125,6 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
         request.setValue("multipart/form-data; boundary=\(boundary)",
                          forHTTPHeaderField: "Content-Type")
 
-Ashen, [5/23/2025 12:15 PM]
 var body = Data()
         let params = [
             "clubId": "0",
