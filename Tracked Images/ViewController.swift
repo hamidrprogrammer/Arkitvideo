@@ -2,8 +2,7 @@
 //  ViewController.swift
 //  Tracked Images – Dynamic Video
 //
-//  Original  : © 2018 Tony Morales
-//  Updated   : 23 May 2025 – Full dynamic implementation
+//  © 2025 – production-ready single-file version
 //
 
 import UIKit
@@ -57,17 +56,17 @@ struct MediaItemRaw: Codable {
 
 // MARK: - View Controller -----------------------------------------------------
 
-class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
+final class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
     
     // MARK: IBOutlets
-    @IBOutlet var sceneView: ARSCNView!
-    @IBOutlet weak var magicSwitch: UISwitch!
-    @IBOutlet weak var blurView: UIVisualEffectView!
+    @IBOutlet private weak var sceneView: ARSCNView!
+    @IBOutlet private weak var magicSwitch: UISwitch!
+    @IBOutlet private weak var blurView: UIVisualEffectView!   // shows while session is interrupted
     
     // MARK: Private State
-    var videoURLMap: [String: URL] = [:]   // imageName → videoURL
-    let updateQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).serialSceneKitQueue")
-    var isRestartAvailable = true
+    private var videoURLMap: [String: URL] = [:]   // imageName → videoURL
+    private let updateQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).serialSceneKitQueue")
+    private var isRestartAvailable = true
     
     // MARK: - Lifecycle
     
@@ -76,7 +75,8 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
         
         sceneView.delegate = self
         sceneView.session.delegate = self
-        magicSwitch.setOn(false, animated: false)
+        magicSwitch.isOn = false
+        blurView.isHidden = true
         
         fetchMediaFromAPI()          // Build the imageName→videoURL map
     }
@@ -94,7 +94,7 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
     
     // MARK: - AR Session Configuration
     
-    @IBAction func switchOnMagic(_ sender: Any) {
+    @IBAction private func switchOnMagic(_ sender: Any) {
         let configuration = ARImageTrackingConfiguration()
         guard let trackingImages = ARReferenceImage.referenceImages(inGroupNamed: "AR Resources", bundle: nil) else {
             print("❌ Could not load tracking images")
@@ -105,12 +105,13 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
         sceneView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
     }
     
-    private func resetTracking() {
+    /// Restarts the AR session with an empty configuration.
+    func resetTracking() {
         let configuration = ARImageTrackingConfiguration()
         sceneView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
     }
     
-    // MARK: - API ----------------------------------------------------------------
+    // MARK: - Remote API -------------------------------------------------------
     
     private func fetchMediaFromAPI() {
         guard let url = URL(string: "https://club.mamakschool.ir/club.backend/ClubAdmin/GetAllImageARGuest") else { return }
@@ -136,12 +137,12 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
         request.httpBody = body
         
         URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
-            guard let self = self else { return }
-            if let error = error {
+            guard let self else { return }
+            if let error {
                 print("❌ API error:", error)
                 return
             }
-            guard let data = data else { return }
+            guard let data else { return }
             do {
                 let decoded = try JSONDecoder().decode(MediaResponse.self, from: data)
                 DispatchQueue.main.async { self.buildVideoMap(from: decoded.data.dataContent) }
@@ -160,7 +161,7 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
         print("✅ videoURLMap ready with \(videoURLMap.count) entries")
     }
     
-    // MARK: - ARSCNViewDelegate ---------------------------------------------------
+    // MARK: - ARSCNViewDelegate -------------------------------------------------
     
     func renderer(_ renderer: SCNSceneRenderer,
                   nodeFor anchor: ARAnchor) -> SCNNode? {
@@ -194,9 +195,35 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
         player.play()
         return parent
     }
+    
+    // MARK: - ARSessionDelegate -------------------------------------------------
+    
+    func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {
+        switch camera.trackingState {
+        case .normal:             print("🟢 Tracking normal")
+        case .notAvailable:       print("🔴 Tracking not available")
+        case .limited(let reason):print("🟡 Tracking limited:", reason)
+        @unknown default:         print("⚠️ Unknown tracking state")
+        }
+    }
+    
+    func session(_ session: ARSession, didFailWithError error: Error) {
+        print("💥 ARSession error:", error.localizedDescription)
+    }
+    
+    func sessionWasInterrupted(_ session: ARSession) {
+        print("⏸️ Session interrupted")
+        DispatchQueue.main.async { self.blurView.isHidden = false }
+    }
+    
+    func sessionInterruptionEnded(_ session: ARSession) {
+        print("▶️ Session interruption ended – resetting tracking")
+        DispatchQueue.main.async { self.blurView.isHidden = true }
+        resetTracking()
+    }
 }
 
-// MARK: - Convenience Data extension -------------------------------------------
+// MARK: - Convenience Data extension ------------------------------------------
 
 private extension Data {
     mutating func append(_ string: String.UTF8View) {
