@@ -56,12 +56,12 @@ struct MediaItemRaw: Codable {
 
 // MARK: - ViewController -------------------------------------------------------
 
-final class ViewController: UIViewController, ARSCNViewDelegate {
+final class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
     
     // MARK: IBOutlets
-    @IBOutlet weak var sceneView: ARSCNView!
-    @IBOutlet weak var magicSwitch: UISwitch!
-    @IBOutlet weak var blurView: UIVisualEffectView!
+    @IBOutlet  weak var sceneView: ARSCNView!
+    @IBOutlet  weak var magicSwitch: UISwitch!
+    @IBOutlet  weak var blurView: UIVisualEffectView!
     
     // MARK: Private State
      var videoURLMap: [String: URL] = [:]          // image name → video URL
@@ -70,7 +70,7 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
      var isSessionRunning = false
      var isRestartAvailable = true
      let updateQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).serialSceneKitQueue")
-    static let ReferencePhysicalWidth: CGFloat = 0.20     // metres
+    static let referencePhysicalWidth: CGFloat = 0.20     // metres
     
     // status UI (already on storyboard)
      lazy var statusViewController: StatusViewController = {
@@ -78,11 +78,12 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
     }()
     
     // MARK: Lifecycle -----------------------------------------------------------
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         
         sceneView.delegate = self
-        sceneView.session.delegate = self
+        sceneView.session.delegate = self          // ✅ now allowed
         magicSwitch.isOn = false
         blurView.isHidden = true
         
@@ -191,7 +192,7 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
                       let uiImage = UIImage(data: data),
                       let cg = uiImage.cgImage else { return }
                 
-                let refImage = ARReferenceImage(cg, orientation: .up, physicalWidth: Self.ReferencePhysicalWidth)
+                let refImage = ARReferenceImage(cg, orientation: .up, physicalWidth: Self.referencePhysicalWidth)
                 refImage.name = item.name
                 refs.append(refImage)
             }.resume()
@@ -206,7 +207,6 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
     
     // MARK: ARSCNViewDelegate ---------------------------------------------------
     
-    /// Called when a new anchor appears.
     func renderer(_ renderer: SCNSceneRenderer, nodeFor anchor: ARAnchor) -> SCNNode? {
         guard let imageAnchor = anchor as? ARImageAnchor else { return nil }
         let imageName = imageAnchor.referenceImage.name ?? ""
@@ -248,30 +248,31 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
         return parent
     }
     
-    /// Called continuously while an anchor is tracked / lost.
     func renderer(_ renderer: SCNSceneRenderer, didUpdate node: SCNNode, for anchor: ARAnchor) {
         guard let imageAnchor = anchor as? ARImageAnchor else { return }
         let imageName = imageAnchor.referenceImage.name ?? ""
         guard let player = playerMap[imageName] else { return }
         
         if imageAnchor.isTracked {
-            // back in view → resume
             if player.timeControlStatus != .playing {
                 player.play()
                 print("▶️ Resume «\(imageName)»")
             }
         } else {
-            // lost tracking → pause
             if player.timeControlStatus == .playing {
                 player.pause()
                 print("⏸️ Pause «\(imageName)»")
             }
         }
     }
+    
+    // MARK: ARSessionDelegate ---------------------------------------------------
+    
+  
 }
 
 // MARK: - Convenience ----------------------------------------------------------
 
 private extension Data {
-    mutating func append(_ string: String.UTF8View) { append(Data(string)) }
+    mutating func append(_ utf8: String.UTF8View) { append(Data(utf8)) }
 }
