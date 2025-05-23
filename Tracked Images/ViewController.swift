@@ -2,13 +2,15 @@
 //  ViewController.swift
 //  DynamicImageTracking
 //
-//  Created by Ashen on 23/05/2025.
+//  Updated: 23 May 2025 – adds map-launch on image detection
 //
 
 import UIKit
 import SceneKit
 import ARKit
 import AVFoundation
+import MapKit
+import CoreLocation
 
 // MARK: - API Models -----------------------------------------------------------
 
@@ -27,12 +29,12 @@ struct MediaItemRaw: Codable {
     let clubId: Int
     let adminId: Int
     let name: String
-    let video: String          // video URL
+    let video: String
     let object: String
     let mapLa: String
     let mapLo: String
     let card: String?
-    let image: String          // image URL
+    let image: String
     let isRemoved: Bool
     let isPassword: Bool
     let type: String
@@ -56,34 +58,37 @@ struct MediaItemRaw: Codable {
 
 // MARK: - ViewController -------------------------------------------------------
 
-final class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
+final class ViewController: UIViewController, ARSCNViewDelegate {
     
     // MARK: IBOutlets
-    @IBOutlet  weak var sceneView: ARSCNView!
-    @IBOutlet  weak var magicSwitch: UISwitch!
-    @IBOutlet  weak var blurView: UIVisualEffectView!
+    @IBOutlet weak var sceneView: ARSCNView!
+    @IBOutlet weak var magicSwitch: UISwitch!
+    @IBOutlet weak var blurView: UIVisualEffectView!
     
     // MARK: Private State
-     var videoURLMap: [String: URL] = [:]          // image name → video URL
-     var playerMap:   [String: AVPlayer] = [:]     // image name → AVPlayer
+     var videoURLMap: [String: URL] = [:]                    // image → video
+     var playerMap:   [String: AVPlayer] = [:]               // image → AVPlayer
+     var coordMap:    [String: CLLocationCoordinate2D] = [:] // image → lat/lon
+     var openedForImage = Set<String>()                      // prevent repeats
      var dynamicReferenceImages = Set<ARReferenceImage>()
+    
      var isSessionRunning = false
      var isRestartAvailable = true
      let updateQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).serialSceneKitQueue")
-    static let referencePhysicalWidth: CGFloat = 0.20     // metres
     
-    // status UI (already on storyboard)
+    static let ReferencePhysicalWidth: CGFloat = 0.20               // metres
+    
+    // status overlay (already on storyboard)
      lazy var statusViewController: StatusViewController = {
         children.lazy.compactMap { $0 as? StatusViewController }.first!
     }()
     
-    // MARK: Lifecycle -----------------------------------------------------------
-    
+    // MARK: Lifecycle ----------------------------------------------------------
     override func viewDidLoad() {
         super.viewDidLoad()
         
         sceneView.delegate = self
-        sceneView.session.delegate = self          // ✅ now allowed
+        sceneView.session.delegate = self
         magicSwitch.isOn = false
         blurView.isHidden = true
         
@@ -163,7 +168,7 @@ final class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelega
             do {
                 let decoded = try JSONDecoder().decode(MediaResponse.self, from: data)
                 let validItems = decoded.data.dataContent.filter {
-                    !$0.isRemoved && !$0.name.isEmpty && !$0.image.isEmpty && !$0.video.isEmpty
+                    !$0.isRemoved && !$0.name.isEmpty && !$0.image.isEmpty
                 }
                 self.prepareTracking(with: validItems)
             } catch {
@@ -180,10 +185,17 @@ final class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelega
         let group = DispatchGroup()
         
         for item in items {
-            guard let imgURL = URL(string: item.image),
-                  let vidURL = URL(string: item.video) else { continue }
+            guard let imgURL = URL(string: item.image) else { continue }
             
-            videoURLMap[item.name] = vidURL
+            if let vidURL = URL(string: item.video) {
+                videoURLMap[item.name] = vidURL
+            }
+            
+            // store coordinates if present
+            if let lat = Double(item.mapLa.isEmpty ? item.latitude : item.mapLa),
+               let lon = Double(item.mapLo.isEmpty ? item.longitude : item.mapLo) {
+                coordMap[item.name] = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+            }
             
             group.enter()
             URLSession.shared.dataTask(with: imgURL) { data, _, _ in
@@ -192,7 +204,7 @@ final class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelega
                       let uiImage = UIImage(data: data),
                       let cg = uiImage.cgImage else { return }
                 
-                let refImage = ARReferenceImage(cg, orientation: .up, physicalWidth: Self.referencePhysicalWidth)
+                let refImage = ARReferenceImage(cg, orientation: .up, physicalWidth: Self.ReferencePhysicalWidth)
                 refImage.name = item.name
                 refs.append(refImage)
             }.resume()
@@ -207,20 +219,32 @@ final class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelega
     
     // MARK: ARSCNViewDelegate ---------------------------------------------------
     
+    /// Called when a new anchor appears.
     func renderer(_ renderer: SCNSceneRenderer, nodeFor anchor: ARAnchor) -> SCNNode? {
         guard let imageAnchor = anchor as? ARImageAnchor else { return nil }
         let imageName = imageAnchor.referenceImage.name ?? ""
-        guard let videoURL = videoURLMap[imageName] else {
-            print("⚠️ No video mapped for «\(imageName)»")
-            statusViewController.showMessage("No video mapped for «\(imageName)»")
-            return nil
+        
+        // 1️⃣  MAP HANDLING -----------------------------------------------------
+        if let coord = coordMap[imageName], !openedForImage.contains(imageName) {
+            openedForImage.insert(imageName)
+            
+            let url = URL(string: "http://maps.apple.com/?ll=\(coord.latitude),\(coord.longitude)")!
+            DispatchQueue.main.async {
+                UIApplication.shared.open(url, options: [:], completionHandler: nil)
+            }
+            print("🗺️ Opening map for «\(imageName)» (\(coord.latitude), \(coord.longitude))")
+            statusViewController.showMessage("Opening map for «\(imageName)»")
         }
         
-        // Player
+        // 2️⃣  VIDEO OVERLAY (unchanged) ---------------------------------------
+        guard let videoURL = videoURLMap[imageName] else {
+            // If no video for this image, just return empty node (map already handled)
+            return SCNNode()
+        }
+        
         let player = AVPlayer(url: videoURL)
         player.actionAtItemEnd = .none      // allow looping
         
-        // Loop observer
         NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: player.currentItem,
@@ -231,7 +255,6 @@ final class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelega
         
         playerMap[imageName] = player       // keep strong ref
         
-        // Plane
         let plane = SCNPlane(width: imageAnchor.referenceImage.physicalSize.width,
                              height: imageAnchor.referenceImage.physicalSize.height)
         plane.firstMaterial?.diffuse.contents = player
@@ -248,6 +271,7 @@ final class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelega
         return parent
     }
     
+    /// Called continuously while an anchor is tracked / lost.
     func renderer(_ renderer: SCNSceneRenderer, didUpdate node: SCNNode, for anchor: ARAnchor) {
         guard let imageAnchor = anchor as? ARImageAnchor else { return }
         let imageName = imageAnchor.referenceImage.name ?? ""
@@ -265,14 +289,10 @@ final class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelega
             }
         }
     }
-    
-    // MARK: ARSessionDelegate ---------------------------------------------------
-    
-  
 }
 
 // MARK: - Convenience ----------------------------------------------------------
 
 private extension Data {
-    mutating func append(_ utf8: String.UTF8View) { append(Data(utf8)) }
+    mutating func append(_ string: String.UTF8View) { append(Data(string)) }
 }
