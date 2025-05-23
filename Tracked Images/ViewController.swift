@@ -1,45 +1,76 @@
+//
+//  ViewController.swift
+//  Tracked Images – Dynamic Video
+//
+//  Original  : © 2018 Tony Morales
+//  Updated   : 23 May 2025 – Full dynamic implementation
+//
+
 import UIKit
 import SceneKit
 import ARKit
 import AVFoundation
 
+// MARK: - API Models ----------------------------------------------------------
+
+struct MediaResponse: Codable {
+    let status: Int
+    let data: MediaData
+    let message: String
+}
+
+struct MediaData: Codable {
+    let state: Int
+    let dataContent: [MediaItemRaw]
+}
+
+struct MediaItemRaw: Codable {
+    let clubId: Int
+    let adminId: Int
+    let name: String          // **Must exactly match image name in asset catalog**
+    let video: String         // Remote video URL
+    let object: String
+    let mapLa: String
+    let mapLo: String
+    let card: String?
+    let image: String
+    let isRemoved: Bool
+    let isPassword: Bool
+    let type: String
+    let fullName: String
+    let instagram: String
+    let facebook: String
+    let twitter: String
+    let email: String
+    let phone: String
+    let avatar: String
+    let description: String
+    let latitude: String
+    let longitude: String
+    let addressSite: String
+    let ytb: String
+    let seen: Int
+    let id: Int
+    let insertTime: String
+    let updateTime: String?
+}
+
+// MARK: - View Controller -----------------------------------------------------
+
 class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
     
+    // MARK: IBOutlets
     @IBOutlet var sceneView: ARSCNView!
     @IBOutlet weak var magicSwitch: UISwitch!
-    var isRestartAvailable = true
-@IBOutlet weak var blurView: UIVisualEffectView!
-var statusViewController: StatusViewController!
-    struct MediaResponse: Codable {
-        let status: Int
-        let data: MediaData
-        let message: String
-    }
-
-    struct MediaData: Codable {
-        let state: Int
-        let dataContent: [MediaItemRaw]
-    }
-
-    struct MediaItemRaw: Codable {
-        let id: Int
-        let name: String
-        let image: String
-        let video: String
-        let isRemoved: Bool
-    }
-
-    struct MediaItem {
-        let name: String
-        let image: UIImage
-        let videoUrl: URL
-    }
-
-    var mediaItems: [MediaItem] = []
-    var videoPlayers: [String: AVPlayer] = [:]
- lazy var statusViewController: StatusViewController = {
-        return children.lazy.compactMap({ $0 as? StatusViewController }).first!
-    }()
+    @IBOutlet weak var blurView: UIVisualEffectView!
+    
+    // MARK: Private State
+    private var videoURLMap: [String: URL] = [:]   // imageName → videoURL
+    private let updateQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).serialSceneKitQueue")
+    private var isRestartAvailable = true
+    
+    // MARK: - Lifecycle
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         
@@ -47,139 +78,128 @@ var statusViewController: StatusViewController!
         sceneView.session.delegate = self
         magicSwitch.setOn(false, animated: false)
         
-        UIApplication.shared.isIdleTimerDisabled = true
-        
-        fetchMediaItemsFromAPI()
-        statusViewController.restartExperienceHandler = { [unowned self] in
-            self.restartExperience()
-        }
+        fetchMediaFromAPI()          // Build the imageName→videoURL map
     }
-
-    func fetchMediaItemsFromAPI() {
+    
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        UIApplication.shared.isIdleTimerDisabled = true   // keep screen awake
+        resetTracking()                                   // start AR session
+    }
+    
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        sceneView.session.pause()
+    }
+    
+    // MARK: - AR Session Configuration
+    
+    @IBAction func switchOnMagic(_ sender: Any) {
+        let configuration = ARImageTrackingConfiguration()
+        guard let trackingImages = ARReferenceImage.referenceImages(inGroupNamed: "AR Resources", bundle: nil) else {
+            print("❌ Could not load tracking images")
+            return
+        }
+        configuration.trackingImages = trackingImages
+        configuration.maximumNumberOfTrackedImages = 4
+        sceneView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+    }
+    
+    private func resetTracking() {
+        let configuration = ARImageTrackingConfiguration()
+        sceneView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+    }
+    
+    // MARK: - API ----------------------------------------------------------------
+    
+    private func fetchMediaFromAPI() {
         guard let url = URL(string: "https://club.mamakschool.ir/club.backend/ClubAdmin/GetAllImageARGuest") else { return }
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-
+        
         let boundary = UUID().uuidString
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-
+        request.setValue("multipart/form-data; boundary=\(boundary)",
+                         forHTTPHeaderField: "Content-Type")
+        
         var body = Data()
         let params = [
             "clubId": "0",
             "adminId": "1"
         ]
-
         for (key, value) in params {
-            body.append("--\(boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".data(using: .utf8)!)
-            body.append("\(value)\r\n".data(using: .utf8)!)
+            body.append("--\(boundary)\r\n".utf8)
+            body.append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".utf8)
+            body.append("\(value)\r\n".utf8)
         }
-
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)--\r\n".utf8)
         request.httpBody = body
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        
+        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+            guard let self = self else { return }
+            if let error = error {
+                print("❌ API error:", error)
+                return
+            }
             guard let data = data else { return }
-
             do {
                 let decoded = try JSONDecoder().decode(MediaResponse.self, from: data)
-                self.prepareReferenceImages(from: decoded.data.dataContent)
+                DispatchQueue.main.async { self.buildVideoMap(from: decoded.data.dataContent) }
             } catch {
-                print("JSON decode error:", error)
+                print("❌ JSON decode error:", error)
             }
         }.resume()
     }
-
-    @IBAction func switchOnMagic(_ sender: Any) {
-        let configuration = ARImageTrackingConfiguration()
+    
+    private func buildVideoMap(from items: [MediaItemRaw]) {
+        for item in items {
+            if let url = URL(string: item.video) {
+                videoURLMap[item.name] = url
+            }
+        }
+        print("✅ videoURLMap ready with \(videoURLMap.count) entries")
+    }
+    
+    // MARK: - ARSCNViewDelegate ---------------------------------------------------
+    
+    func renderer(_ renderer: SCNSceneRenderer,
+                  nodeFor anchor: ARAnchor) -> SCNNode? {
         
-        guard let trackingImages = ARReferenceImage.referenceImages(inGroupNamed: "AR Resources", bundle: nil) else {
-            print("Could not load images")
-            return
+        guard let imageAnchor = anchor as? ARImageAnchor else { return nil }
+        let imageName = imageAnchor.referenceImage.name ?? ""
+        
+        // Lookup video URL for this image
+        guard let videoURL = videoURLMap[imageName] else {
+            print("⚠️ No video URL mapped for image «\(imageName)»")
+            return nil
         }
         
-        // Setup Configuration
-        configuration.trackingImages = trackingImages
-        configuration.maximumNumberOfTrackedImages = 4
-        session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
-    }
-    func prepareReferenceImages(from rawItems: [MediaItemRaw]) {
-        let group = DispatchGroup()
-
-        for item in rawItems where !item.isRemoved && !item.image.isEmpty && !item.video.isEmpty {
-            guard let imageUrl = URL(string: item.image),
-                  let videoUrl = URL(string: item.video) else { continue }
-
-            group.enter()
-
-            URLSession.shared.dataTask(with: imageUrl) { data, _, error in
-                defer { group.leave() }
-
-                guard let data = data, let image = UIImage(data: data) else {
-                    print("Failed to load image for \(item.name)")
-                    return
-                }
-
-                let mediaItem = MediaItem(name: item.name, image: image, videoUrl: videoUrl)
-                self.mediaItems.append(mediaItem)
-            }.resume()
-        }
-
-        group.notify(queue: .main) {
-            self.setupARReferenceImages()
-        }
-    }
-
-    func setupARReferenceImages() {
-        var referenceImages = Set<ARReferenceImage>()
-        for item in mediaItems {
-            guard let cgImage = item.image.cgImage else { continue }
-            let arImage = ARReferenceImage(cgImage, orientation: .up, physicalWidth: 0.2)
-            arImage.name = item.name
-            referenceImages.insert(arImage)
-        }
-
-        let configuration = ARImageTrackingConfiguration()
-        configuration.trackingImages = referenceImages
-        configuration.maximumNumberOfTrackedImages = referenceImages.count
-        sceneView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
-    }
-
-    public func renderer(_ renderer: SCNSceneRenderer, nodeFor anchor: ARAnchor) -> SCNNode? {
-        let node = SCNNode()
-
-        guard let imageAnchor = anchor as? ARImageAnchor,
-              let imageName = imageAnchor.referenceImage.name,
-              let mediaItem = mediaItems.first(where: { $0.name == imageName }) else {
-            return node
-        }
-
-        let videoPlayer: AVPlayer
-        if let existingPlayer = videoPlayers[mediaItem.name] {
-            videoPlayer = existingPlayer
-        } else {
-            videoPlayer = AVPlayer(url: mediaItem.videoUrl)
-            videoPlayer.volume = 0.6
-            videoPlayers[mediaItem.name] = videoPlayer
-        }
-
+        // Create player
+        let player = AVPlayer(url: videoURL)
+        player.volume = 1.0
+        
+        // Plane matching physical size of the image
         let plane = SCNPlane(width: imageAnchor.referenceImage.physicalSize.width,
                              height: imageAnchor.referenceImage.physicalSize.height)
-        plane.firstMaterial?.diffuse.contents = videoPlayer
+        plane.firstMaterial?.diffuse.contents = player
         plane.firstMaterial?.isDoubleSided = true
-
-        let planeNode = SCNNode(geometry: plane)
-        planeNode.eulerAngles.x = -.pi / 2
-        node.addChildNode(planeNode)
-
-        videoPlayer.play()
-
-        return node
-    }
-     func resetTracking() {
         
-        let configuration = ARImageTrackingConfiguration()
-        session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+        let planeNode = SCNNode(geometry: plane)
+        planeNode.eulerAngles.x = -.pi / 2    // lay flat on image
+        
+        // Parent node
+        let parent = SCNNode()
+        parent.addChildNode(planeNode)
+        
+        player.play()
+        return parent
+    }
+}
+
+// MARK: - Convenience Data extension -------------------------------------------
+
+private extension Data {
+    mutating func append(_ string: String.UTF8View) {
+        self.append(Data(string))
     }
 }
