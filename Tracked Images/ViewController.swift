@@ -102,7 +102,7 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
     
     // MARK: Session helpers -----------------------------------------------------
     
-    private func resetTracking() {
+     func resetTracking() {
         let configuration = ARImageTrackingConfiguration()
         sceneView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
     }
