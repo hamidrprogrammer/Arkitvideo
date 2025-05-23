@@ -22,7 +22,7 @@ workflows:
         script: | 
           cd /Users/builder/clone  # Navigate to project directory
           LATEST_BUILD_NUMBER=$(app-store-connect get-latest-app-store-build-number "6738909278")
-          agvtool new-version -all $(($LATEST_BUILD_NUMBER + 11))
+          agvtool new-version -all $(($LATEST_BUILD_NUMBER + 12))
           CURRENT_BUILD_NUMBER=$(agvtool what-version -terse)
           echo "Updated build number: $CURRENT_BUILD_NUMBER"
 
