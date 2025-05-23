@@ -128,6 +128,8 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
             guard let self else { return }
             if let error {
                 print("❌ API error:", error)
+                                        statusViewController.showMessage("❌ API error:")
+
                 return
             }
             guard let data else { return }
@@ -142,6 +144,8 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
                 self.prepareTracking(with: validItems)
             } catch {
                 print("❌ JSON decode error:", error)
+                        statusViewController.showMessage("❌ JSON decode error:")
+
             }
         }.resume()
     }
@@ -176,6 +180,8 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
         group.notify(queue: .main) {
             self.dynamicReferenceImages = Set(refs)
             print("✅ Prepared \(refs.count) dynamic reference images")
+                                                    statusViewController.showMessage("✅ Prepared \(refs.count) dynamic reference images")
+
             self.configureAndRunSession()
         }
     }
@@ -202,6 +208,8 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
         sceneView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
         isSessionRunning = true
         print("🟢 AR session running with \(dynamicReferenceImages.count) images")
+                                                            statusViewController.showMessage("🟢 AR session running with \(dynamicReferenceImages.count) images")
+
     }
     
     // MARK: - ARSCNViewDelegate -------------------------------------------------
@@ -212,6 +220,8 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
         
         guard let videoURL = videoURLMap[imageName] else {
             print("⚠️ No video mapped for «\(imageName)»")
+            statusViewController.showMessage("⚠️ No video mapped for «\(imageName)»")
+
             return nil
         }
         
