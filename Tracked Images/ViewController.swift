@@ -1,3 +1,4 @@
+Ashen, [5/23/2025 12:15 PM]
 //
 //  ViewController.swift
 //  Tracked Images – Dynamic Video
@@ -26,7 +27,7 @@ struct MediaData: Codable {
 struct MediaItemRaw: Codable {
     let clubId: Int
     let adminId: Int
-    let name: String          // **Must exactly match image name in asset catalog**
+    let name: String          // Must exactly match image name in asset catalog
     let video: String         // Remote video URL
     let object: String
     let mapLa: String
@@ -56,20 +57,21 @@ struct MediaItemRaw: Codable {
 
 // MARK: - View Controller -----------------------------------------------------
 
-final class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
+final class ViewController: UIViewController, ARSCNViewDelegate {
     
     // MARK: IBOutlets
-    @IBOutlet private weak var sceneView: ARSCNView!
-    @IBOutlet private weak var magicSwitch: UISwitch!
-    @IBOutlet private weak var blurView: UIVisualEffectView!   // shows while session is interrupted
-    
+    @IBOutlet  weak var sceneView: ARSCNView!
+    @IBOutlet  weak var magicSwitch: UISwitch!
+    @IBOutlet  weak var blurView: UIVisualEffectView!   // shows while session is interrupted
     // MARK: Private State
     private var videoURLMap: [String: URL] = [:]   // imageName → videoURL
     private let updateQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).serialSceneKitQueue")
-    private var isRestartAvailable = true
+     var isRestartAvailable = true
     
     // MARK: - Lifecycle
-    
+    lazy var statusViewController: StatusViewController = {
+            return children.lazy.compactMap({ $0 as? StatusViewController }).first!
+        }()
     override func viewDidLoad() {
         super.viewDidLoad()
         
@@ -122,8 +124,9 @@ final class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelega
         let boundary = UUID().uuidString
         request.setValue("multipart/form-data; boundary=\(boundary)",
                          forHTTPHeaderField: "Content-Type")
-        
-        var body = Data()
+
+Ashen, [5/23/2025 12:15 PM]
+var body = Data()
         let params = [
             "clubId": "0",
             "adminId": "1"
@@ -207,20 +210,7 @@ final class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelega
         }
     }
     
-    func session(_ session: ARSession, didFailWithError error: Error) {
-        print("💥 ARSession error:", error.localizedDescription)
-    }
-    
-    func sessionWasInterrupted(_ session: ARSession) {
-        print("⏸️ Session interrupted")
-        DispatchQueue.main.async { self.blurView.isHidden = false }
-    }
-    
-    func sessionInterruptionEnded(_ session: ARSession) {
-        print("▶️ Session interruption ended – resetting tracking")
-        DispatchQueue.main.async { self.blurView.isHidden = true }
-        resetTracking()
-    }
+   
 }
 
 // MARK: - Convenience Data extension ------------------------------------------
