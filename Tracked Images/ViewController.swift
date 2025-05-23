@@ -1,10 +1,3 @@
-Ashen, [5/23/2025 12:15 PM]
-//
-//  ViewController.swift
-//  Tracked Images – Dynamic Video
-//
-//  © 2025 – production-ready single-file version
-//
 
 import UIKit
 import SceneKit
