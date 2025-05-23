@@ -7,7 +7,9 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
     
     @IBOutlet var sceneView: ARSCNView!
     @IBOutlet weak var magicSwitch: UISwitch!
-    
+    var isRestartAvailable = true
+@IBOutlet weak var blurView: UIVisualEffectView!
+var statusViewController: StatusViewController!
     struct MediaResponse: Codable {
         let status: Int
         let data: MediaData
@@ -35,7 +37,9 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
 
     var mediaItems: [MediaItem] = []
     var videoPlayers: [String: AVPlayer] = [:]
-
+ lazy var statusViewController: StatusViewController = {
+        return children.lazy.compactMap({ $0 as? StatusViewController }).first!
+    }()
     override func viewDidLoad() {
         super.viewDidLoad()
         
@@ -46,6 +50,9 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
         UIApplication.shared.isIdleTimerDisabled = true
         
         fetchMediaItemsFromAPI()
+        statusViewController.restartExperienceHandler = { [unowned self] in
+            self.restartExperience()
+        }
     }
 
     func fetchMediaItemsFromAPI() {
@@ -84,6 +91,19 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
         }.resume()
     }
 
+    @IBAction func switchOnMagic(_ sender: Any) {
+        let configuration = ARImageTrackingConfiguration()
+        
+        guard let trackingImages = ARReferenceImage.referenceImages(inGroupNamed: "AR Resources", bundle: nil) else {
+            print("Could not load images")
+            return
+        }
+        
+        // Setup Configuration
+        configuration.trackingImages = trackingImages
+        configuration.maximumNumberOfTrackedImages = 4
+        session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+    }
     func prepareReferenceImages(from rawItems: [MediaItemRaw]) {
         let group = DispatchGroup()
 
@@ -156,5 +176,10 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
         videoPlayer.play()
 
         return node
+    }
+     func resetTracking() {
+        
+        let configuration = ARImageTrackingConfiguration()
+        session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
     }
 }
