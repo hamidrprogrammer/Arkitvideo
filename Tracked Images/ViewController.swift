@@ -65,9 +65,9 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
     @IBOutlet weak var blurView: UIVisualEffectView!
     
     // MARK: Private State
-    private var videoURLMap: [String: URL] = [:]   // imageName → videoURL
-    private let updateQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).serialSceneKitQueue")
-    private var isRestartAvailable = true
+    var videoURLMap: [String: URL] = [:]   // imageName → videoURL
+    let updateQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).serialSceneKitQueue")
+    var isRestartAvailable = true
     
     // MARK: - Lifecycle
     
