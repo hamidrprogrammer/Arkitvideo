@@ -93,6 +93,7 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
         let configuration = ARImageTrackingConfiguration()
         guard let trackingImages = ARReferenceImage.referenceImages(inGroupNamed: "AR Resources", bundle: nil) else {
             print("❌ Could not load tracking images")
+             statusViewController.showMessage("❌ Could not load tracking images")
             return
         }
         configuration.trackingImages = trackingImages
@@ -143,6 +144,8 @@ var body = Data()
                 DispatchQueue.main.async { self.buildVideoMap(from: decoded.data.dataContent) }
             } catch {
                 print("❌ JSON decode error:", error)
+                statusViewController.showMessage("JSON decode error")
+
             }
         }.resume()
     }
@@ -153,6 +156,7 @@ var body = Data()
                 videoURLMap[item.name] = url
             }
         }
+        statusViewController.showMessage("✅ videoURLMap ready with \(videoURLMap.count) entries")
         print("✅ videoURLMap ready with \(videoURLMap.count) entries")
     }
     
