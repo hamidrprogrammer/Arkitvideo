@@ -2,13 +2,13 @@ workflows:
   ios-workflow:
     name: Custom Workflow
     integrations:
-      app_store_connect: codemagic
+      app_store_connect: hamid
     environment:
       groups:
         - admin
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.hamid.arkit.new
+        bundle_identifier: com.application.ar.golestan
     scripts:
       - name: Set up code signing settings on Xcode project
         script: |
