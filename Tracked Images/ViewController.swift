@@ -2,7 +2,7 @@
 //  ViewController.swift
 //  DynamicImageTracking
 //
-//  Updated: 23 May 2025 – adds map-launch on image detection
+//  Updated: 11 June 2025 – adds YouTube and Map launching
 //
 
 import UIKit
@@ -12,7 +12,7 @@ import AVFoundation
 import MapKit
 import CoreLocation
 
-// MARK: - API Models -----------------------------------------------------------
+// MARK: - API Models (Unchanged) -----------------------------------------------
 
 struct MediaResponse: Codable {
     let status: Int
@@ -49,7 +49,7 @@ struct MediaItemRaw: Codable {
     let latitude: String
     let longitude: String
     let addressSite: String
-    let ytb: String
+    let ytb: String // This field is for YouTube links
     let seen: Int
     let id: Int
     let insertTime: String
@@ -60,30 +60,39 @@ struct MediaItemRaw: Codable {
 
 final class ViewController: UIViewController, ARSCNViewDelegate {
     
-    // MARK: IBOutlets
+    // MARK: - IBOutlets
     @IBOutlet weak var sceneView: ARSCNView!
     @IBOutlet weak var magicSwitch: UISwitch!
     @IBOutlet weak var blurView: UIVisualEffectView!
     
-    // MARK: Private State
-     var videoURLMap: [String: URL] = [:]                    // image → video
-     var playerMap:   [String: AVPlayer] = [:]               // image → AVPlayer
-     var coordMap:    [String: CLLocationCoordinate2D] = [:] // image → lat/lon
-     var openedForImage = Set<String>()                      // prevent repeats
-     var dynamicReferenceImages = Set<ARReferenceImage>()
+    // MARK: - AR Action Definition
     
-     var isSessionRunning = false
-     var isRestartAvailable = true
-     let updateQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).serialSceneKitQueue")
+    /// Defines the possible actions to take when an image is recognized.
+    enum ARAction {
+        case playVideo(URL)
+        case openMap(CLLocationCoordinate2D)
+        case openYouTube(URL)
+    }
     
-    static let ReferencePhysicalWidth: CGFloat = 0.20               // metres
+    // MARK: - Private State
     
-    // status overlay (already on storyboard)
-     lazy var statusViewController: StatusViewController = {
+    var actionMap: [String: ARAction] = [:]                  // image name → ARAction
+    var playerMap: [String: AVPlayer] = [:]                  // image name → AVPlayer (for video overlays)
+    var openedForImage = Set<String>()                       // prevent opening map/ytb multiple times
+    var dynamicReferenceImages = Set<ARReferenceImage>()
+    
+    var isSessionRunning = false
+    var isRestartAvailable = true
+    let updateQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).serialSceneKitQueue")
+    
+    static let ReferencePhysicalWidth: CGFloat = 0.20        // metres
+    
+    lazy var statusViewController: StatusViewController = {
         children.lazy.compactMap { $0 as? StatusViewController }.first!
     }()
     
-    // MARK: Lifecycle ----------------------------------------------------------
+    // MARK: - Lifecycle
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         
@@ -106,11 +115,20 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
         sceneView.session.pause()
     }
     
-    // MARK: Session helpers -----------------------------------------------------
+    // MARK: - Session Helpers
     
-     func resetTracking() {
+    func resetTracking() {
+        // Reset the set of images for which an action has been taken
+        openedForImage.removeAll()
+        
+        // Use a generic configuration to start, it will be updated once images are fetched
         let configuration = ARImageTrackingConfiguration()
         sceneView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+        
+        // If the switch is on and we already have images, restart the session with them
+        if magicSwitch.isOn {
+            configureAndRunSession()
+        }
     }
     
     @IBAction private func switchOnMagic(_ sender: UISwitch) {
@@ -136,7 +154,7 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
         statusViewController.showMessage("AR session running with \(dynamicReferenceImages.count) images")
     }
     
-    // MARK: API Call & Parsing --------------------------------------------------
+    // MARK: - API Call & Parsing
     
     private func fetchMediaFromAPI() {
         guard let url = URL(string: "https://club.mamakschool.ir/club.backend/ClubAdmin/GetAllImageARGuest") else { return }
@@ -161,7 +179,7 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
             guard let self else { return }
             if let error {
                 print("❌ API error:", error)
-                statusViewController.showMessage("❌ API error:")
+                DispatchQueue.main.async { self.statusViewController.showMessage("❌ API error") }
                 return
             }
             guard let data else { return }
@@ -173,36 +191,41 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
                 self.prepareTracking(with: validItems)
             } catch {
                 print("❌ JSON decode error:", error)
-                statusViewController.showMessage("❌ JSON decode error:")
+                DispatchQueue.main.async { self.statusViewController.showMessage("❌ JSON decode error") }
             }
         }.resume()
     }
     
-    // MARK: Build Reference Images ---------------------------------------------
+    // MARK: - Build Reference Images & Actions
     
     private func prepareTracking(with items: [MediaItemRaw]) {
         var refs = [ARReferenceImage]()
         let group = DispatchGroup()
         
         for item in items {
+            // Priority: YouTube > Map > Video Overlay
+            if let ytbString = item.ytb, !ytbString.isEmpty, let url = URL(string: ytbString) {
+                actionMap[item.name] = .openYouTube(url)
+            } else if let lat = Double(item.mapLa.isEmpty ? item.latitude : item.mapLa),
+                      let lon = Double(item.mapLo.isEmpty ? item.longitude : item.mapLo),
+                      (lat != 0 || lon != 0) { // Ensure coordinates are valid
+                let coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                actionMap[item.name] = .openMap(coord)
+            } else if let vidURL = URL(string: item.video) {
+                actionMap[item.name] = .playVideo(vidURL)
+            }
+            
             guard let imgURL = URL(string: item.image) else { continue }
-            
-            if let vidURL = URL(string: item.video) {
-                videoURLMap[item.name] = vidURL
-            }
-            
-            // store coordinates if present
-            if let lat = Double(item.mapLa.isEmpty ? item.latitude : item.mapLa),
-               let lon = Double(item.mapLo.isEmpty ? item.longitude : item.mapLo) {
-                coordMap[item.name] = CLLocationCoordinate2D(latitude: lat, longitude: lon)
-            }
             
             group.enter()
             URLSession.shared.dataTask(with: imgURL) { data, _, _ in
                 defer { group.leave() }
                 guard let data,
                       let uiImage = UIImage(data: data),
-                      let cg = uiImage.cgImage else { return }
+                      let cg = uiImage.cgImage else {
+                    print("Could not download or process image for \(item.name)")
+                    return
+                }
                 
                 let refImage = ARReferenceImage(cg, orientation: .up, physicalWidth: Self.ReferencePhysicalWidth)
                 refImage.name = item.name
@@ -213,68 +236,93 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
         group.notify(queue: .main) {
             self.dynamicReferenceImages = Set(refs)
             print("✅ Prepared \(refs.count) dynamic reference images")
-            self.configureAndRunSession()
+            
+            // If the magic switch is already on, run the session with the new images
+            if self.magicSwitch.isOn {
+                self.configureAndRunSession()
+            }
         }
     }
     
-    // MARK: ARSCNViewDelegate ---------------------------------------------------
+    // MARK: - ARSCNViewDelegate
     
-    /// Called when a new anchor appears.
     func renderer(_ renderer: SCNSceneRenderer, nodeFor anchor: ARAnchor) -> SCNNode? {
-        guard let imageAnchor = anchor as? ARImageAnchor else { return nil }
+        guard let imageAnchor = anchor as? ARImageAnchor, isSessionRunning else { return nil }
         let imageName = imageAnchor.referenceImage.name ?? ""
         
-        // 1️⃣  MAP HANDLING -----------------------------------------------------
-        if let coord = coordMap[imageName], !openedForImage.contains(imageName) {
+        // Get the action for this image, if any
+        guard let action = actionMap[imageName] else {
+            print("🤷 No action defined for image «\(imageName)»")
+            return nil
+        }
+        
+        // Prevent the same action from being triggered multiple times for YouTube/Map
+        if case .playVideo = action {
+            // It's a video, don't check/use openedForImage
+        } else {
+            if openedForImage.contains(imageName) { return nil }
+        }
+        
+        switch action {
+        case .openYouTube(let url):
             openedForImage.insert(imageName)
-            
+            DispatchQueue.main.async {
+                print("▶️ Opening YouTube for «\(imageName)»")
+                self.statusViewController.showMessage("Opening YouTube for «\(imageName)»")
+                UIApplication.shared.open(url, options: [:])
+            }
+            return SCNNode()
+
+        case .openMap(let coord):
+            openedForImage.insert(imageName)
             let url = URL(string: "http://maps.apple.com/?ll=\(coord.latitude),\(coord.longitude)")!
             DispatchQueue.main.async {
+                print("🗺️ Opening map for «\(imageName)»")
+                self.statusViewController.showMessage("Opening map for «\(imageName)»")
                 UIApplication.shared.open(url, options: [:], completionHandler: nil)
             }
-            print("🗺️ Opening map for «\(imageName)» (\(coord.latitude), \(coord.longitude))")
-            statusViewController.showMessage("Opening map for «\(imageName)»")
-        }
-        
-        // 2️⃣  VIDEO OVERLAY (unchanged) ---------------------------------------
-        guard let videoURL = videoURLMap[imageName] else {
-            // If no video for this image, just return empty node (map already handled)
             return SCNNode()
+
+        case .playVideo(let videoURL):
+            // Only create a video player if one doesn't already exist for this image
+            guard playerMap[imageName] == nil else { return nil }
+            
+            let player = AVPlayer(url: videoURL)
+            player.actionAtItemEnd = .none // allow looping
+            
+            NotificationCenter.default.addObserver(
+                forName: .AVPlayerItemDidPlayToEndTime,
+                object: player.currentItem,
+                queue: .main) { [weak player] _ in
+                    player?.seek(to: .zero)
+                    player?.play()
+                }
+            
+            playerMap[imageName] = player // keep strong ref
+            
+            let plane = SCNPlane(width: imageAnchor.referenceImage.physicalSize.width,
+                                 height: imageAnchor.referenceImage.physicalSize.height)
+            plane.firstMaterial?.diffuse.contents = player
+            plane.firstMaterial?.isDoubleSided = true
+            
+            let planeNode = SCNNode(geometry: plane)
+            planeNode.eulerAngles.x = -.pi / 2
+            
+            let parent = SCNNode()
+            parent.addChildNode(planeNode)
+            
+            player.play()
+            print("🎬 Playing video for «\(imageName)»")
+            return parent
         }
-        
-        let player = AVPlayer(url: videoURL)
-        player.actionAtItemEnd = .none      // allow looping
-        
-        NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: player.currentItem,
-            queue: .main) { [weak player] _ in
-                player?.seek(to: .zero)
-                player?.play()
-            }
-        
-        playerMap[imageName] = player       // keep strong ref
-        
-        let plane = SCNPlane(width: imageAnchor.referenceImage.physicalSize.width,
-                             height: imageAnchor.referenceImage.physicalSize.height)
-        plane.firstMaterial?.diffuse.contents = player
-        plane.firstMaterial?.isDoubleSided = true
-        
-        let planeNode = SCNNode(geometry: plane)
-        planeNode.eulerAngles.x = -.pi / 2
-        
-        let parent = SCNNode()
-        parent.addChildNode(planeNode)
-        
-        player.play()
-        print("🎬 Playing video for «\(imageName)»")
-        return parent
     }
     
-    /// Called continuously while an anchor is tracked / lost.
     func renderer(_ renderer: SCNSceneRenderer, didUpdate node: SCNNode, for anchor: ARAnchor) {
         guard let imageAnchor = anchor as? ARImageAnchor else { return }
         let imageName = imageAnchor.referenceImage.name ?? ""
+        
+        // Only try to control players for video actions
+        guard let action = actionMap[imageName], case .playVideo = action else { return }
         guard let player = playerMap[imageName] else { return }
         
         if imageAnchor.isTracked {
@@ -291,7 +339,7 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
     }
 }
 
-// MARK: - Convenience ----------------------------------------------------------
+// MARK: - Convenience (Unchanged)
 
 private extension Data {
     mutating func append(_ string: String.UTF8View) { append(Data(string)) }
