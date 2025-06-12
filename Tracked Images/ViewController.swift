@@ -2,7 +2,7 @@
 //  ViewController.swift
 //  DynamicImageTracking
 //
-//  Updated: 12 June 2025 – Changed action priority and added length checks
+//  Updated: 12 June 2025 – Added length check for video
 //
 
 import UIKit
@@ -200,11 +200,10 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
         
         for item in items {
             
-            // ⬅️ START OF CHANGES: New priority and length checks
             // Priority: Video > YouTube > Map
             
-            // 1. Check for Video first
-            if let vidURL = URL(string: item.video) {
+            // 1. Check for Video first, with length > 5
+            if item.video.count > 5, let vidURL = URL(string: item.video) {
                 actionMap[item.name] = .playVideo(vidURL)
             
             // 2. Else, check for YouTube with length > 5
@@ -224,7 +223,6 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
                     actionMap[item.name] = .openMap(coord)
                 }
             }
-            // ⬅️ END OF CHANGES
             
             guard let imgURL = URL(string: item.image) else { continue }
             
@@ -254,7 +252,7 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
         }
     }
     
-    // MARK: - ARSCNViewDelegate (No changes below this line)
+    // MARK: - ARSCNViewDelegate
     
     func renderer(_ renderer: SCNSceneRenderer, nodeFor anchor: ARAnchor) -> SCNNode? {
         guard let imageAnchor = anchor as? ARImageAnchor, isSessionRunning else { return nil }
@@ -266,7 +264,6 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
         }
         
         if case .playVideo = action {
-            // No need to check openedForImage for videos
         } else {
             if openedForImage.contains(imageName) { return nil }
         }
