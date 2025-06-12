@@ -2,7 +2,7 @@
 //  ViewController.swift
 //  DynamicImageTracking
 //
-//  Updated: 11 June 2025 – adds YouTube and Map launching (FIXED)
+//  Updated: 12 June 2025 – Changed action priority and added length checks
 //
 
 import UIKit
@@ -49,7 +49,7 @@ struct MediaItemRaw: Codable {
     let latitude: String
     let longitude: String
     let addressSite: String
-    let ytb: String? // ⬅️ FIX: Changed to optional String? to match usage
+    let ytb: String?
     let seen: Int
     let id: Int
     let insertTime: String
@@ -67,7 +67,6 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
     
     // MARK: - AR Action Definition
     
-    /// Defines the possible actions to take when an image is recognized.
     enum ARAction {
         case playVideo(URL)
         case openMap(CLLocationCoordinate2D)
@@ -200,18 +199,32 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
         let group = DispatchGroup()
         
         for item in items {
-            // Priority: YouTube > Map > Video Overlay
-            // This 'if let' now works because `item.ytb` is `String?`
-            if let ytbString = item.ytb, !ytbString.isEmpty, let url = URL(string: ytbString) {
-                actionMap[item.name] = .openYouTube(url)
-            } else if let lat = Double(item.mapLa.isEmpty ? item.latitude : item.mapLa),
-                      let lon = Double(item.mapLo.isEmpty ? item.longitude : item.mapLo),
-                      (lat != 0 || lon != 0) {
-                let coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
-                actionMap[item.name] = .openMap(coord)
-            } else if let vidURL = URL(string: item.video) {
+            
+            // ⬅️ START OF CHANGES: New priority and length checks
+            // Priority: Video > YouTube > Map
+            
+            // 1. Check for Video first
+            if let vidURL = URL(string: item.video) {
                 actionMap[item.name] = .playVideo(vidURL)
+            
+            // 2. Else, check for YouTube with length > 5
+            } else if let ytbString = item.ytb, ytbString.count > 5, let url = URL(string: ytbString) {
+                actionMap[item.name] = .openYouTube(url)
+
+            // 3. Else, check for Map with length > 5
+            } else {
+                let latString = item.mapLa.isEmpty ? item.latitude : item.mapLa
+                let lonString = item.mapLo.isEmpty ? item.longitude : item.mapLo
+                
+                if latString.count > 5 && lonString.count > 5,
+                   let lat = Double(latString),
+                   let lon = Double(lonString),
+                   (lat != 0 || lon != 0) {
+                    let coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                    actionMap[item.name] = .openMap(coord)
+                }
             }
+            // ⬅️ END OF CHANGES
             
             guard let imgURL = URL(string: item.image) else { continue }
             
@@ -241,7 +254,7 @@ final class ViewController: UIViewController, ARSCNViewDelegate {
         }
     }
     
-    // MARK: - ARSCNViewDelegate
+    // MARK: - ARSCNViewDelegate (No changes below this line)
     
     func renderer(_ renderer: SCNSceneRenderer, nodeFor anchor: ARAnchor) -> SCNNode? {
         guard let imageAnchor = anchor as? ARImageAnchor, isSessionRunning else { return nil }
